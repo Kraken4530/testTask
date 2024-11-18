@@ -26,9 +26,9 @@
 
 Пример:
 
-`https://bolid.ru/favicon.ico
+https://bolid.ru/favicon.ico
 
-https://bolid.ru/bld/images/logo.png`
+https://bolid.ru/bld/images/logo.png
 
 ## Выходные данные
 
