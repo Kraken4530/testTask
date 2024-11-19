@@ -19,7 +19,6 @@ std::vector<std::string> readUrlsFromFile(const std::string &filePath)
     std::string line;
     while (std::getline(inputFile, line))
     {
-        // Добавляем строку в вектор, если она не пуста
         if (!line.empty())
         {
             urls.push_back(line);
@@ -34,34 +33,34 @@ int main(int argc, char *argv[])
 {
     logEvent("Program started.");
 
-    // Проверяем, что аргументов достаточно
+    // Проверка, что аргументов достаточно
     if (argc != 4)
     {
-        std::cerr << "Usage: " << argv[0] << " <string1> <string2> <integer>" << std::endl;
-        return 1; // Завершаем программу с кодом ошибки
+        std::cerr << "Usage: " << argv[0] << " <file_path> <dir_path> <max_threads>" << std::endl;
+        return 1; // Завершение программы с ошибкой
     }
 
-    // Извлекаем аргументы
-    std::string str1 = argv[1]; // Первая строка
+    // Извлечение аргументов
+    std::string str1 = argv[1]; // Путь к файлу
     std::vector<std::string> urls = readUrlsFromFile(str1);
-    std::string str2 = argv[2]; // Вторая строка
+    std::string str2 = argv[2]; // Дирректория для сохранения
     std::string outputDir = str2;
     size_t maxThreads;
 
-    // Конвертируем третий аргумент в целое число
+    // Конвертация третьего аргумента в целое число
     try
     {
-        maxThreads = std::stoi(argv[3]); // Преобразование строки в int
+        maxThreads = std::stoi(argv[3]);
     }
     catch (const std::invalid_argument &e)
     {
         std::cerr << "Error: Third argument must be an integer." << std::endl;
-        return 1; // Завершаем программу с кодом ошибки
+        return 1; // Завершение программы с ошибкой
     }
     catch (const std::out_of_range &e)
     {
         std::cerr << "Error: Integer out of range." << std::endl;
-        return 1; // Завершаем программу с кодом ошибки
+        return 1; // Завершение программы с ошибкой
     }
 
     downloadMultipleFiles(urls, outputDir, maxThreads);

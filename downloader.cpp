@@ -26,13 +26,13 @@ void logEvent(const std::string &message)
     std::cout << "[" << getCurrentTime() << "] " << message << std::endl;
 }
 
-// Функция обратного вызова для записи данных в файл
+// Запись данных в файл (CURL callback)
 size_t WriteToFile(void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
     return fwrite(ptr, size, nmemb, stream);
 }
 
-// Функция обратного вызова для обработки заголовков ответа
+// Callback для обработки заголовков
 size_t HeaderCallback(char *buffer, size_t size, size_t nitems, std::string *headerData)
 {
     size_t totalSize = size * nitems;
@@ -88,18 +88,21 @@ std::string ExtractFilenameFromUrl(const std::string &url)
 // Генерация уникального имени файла с добавлением номера (если требуется)
 std::string getFileNameWithNumber(std::string startFileName)
 {
+    // Разделение имени файла и расширения
     size_t lastDotPos = startFileName.rfind('.');
     if (lastDotPos == std::string::npos)
         lastDotPos = startFileName.size();
     std::string name = startFileName.substr(0, lastDotPos);
     std::string extension = startFileName.substr(lastDotPos, startFileName.size());
+
+    // Генерация уникального имени
     int cur_ind = 0;
     while (dirFileNames.find(name + (cur_ind ? "(" + std::to_string(cur_ind) + ")" : "") + extension) != dirFileNames.end())
         cur_ind++;
     return name + (cur_ind ? "(" + std::to_string(cur_ind) + ")" : "") + extension;
 }
 
-// Загрузка файла по указанному URL
+// Загрузка файла по указанному URL в указанную директорию
 bool downloadFile(const std::string &url, const std::string &outputDir)
 {
     CURL *curl = curl_easy_init();
@@ -116,8 +119,6 @@ bool downloadFile(const std::string &url, const std::string &outputDir)
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteToFile);
-
-    // Установка функции обратного вызова для обработки заголовков
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerData);
 
@@ -161,7 +162,7 @@ bool downloadFile(const std::string &url, const std::string &outputDir)
         }
         else
         {
-            // Проверяем, было ли извлечено имя файла из заголовков
+            // Проверка, было ли извлечено имя файла из заголовков
             std::string contentDispositionFilename = ExtractFilename(headerData);
             if (!contentDispositionFilename.empty())
             {

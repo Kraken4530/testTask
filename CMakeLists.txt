@@ -39,3 +39,4 @@ endif()
 # Установка исполняемого файла в директорию bin
 install(TARGETS downloader DESTINATION bin)
 
+
