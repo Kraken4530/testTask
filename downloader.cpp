@@ -1,8 +1,7 @@
 #include "downloader.h"
 
-// Мьютекс для синхронизации доступа к консоли
 std::mutex consoleMutex;
-// Набор имен файлов, используемых для предотвращения дублирования
+std::mutex dirFileNamesMutex;
 std::set<std::string> dirFileNames;
 
 // Получение текущего времени в формате строки с миллисекундами
@@ -88,18 +87,21 @@ std::string ExtractFilenameFromUrl(const std::string &url)
 // Генерация уникального имени файла с добавлением номера (если требуется)
 std::string getFileNameWithNumber(std::string startFileName)
 {
-    // Разделение имени файла и расширения
+    std::lock_guard<std::mutex> lock(dirFileNamesMutex);
+
     size_t lastDotPos = startFileName.rfind('.');
     if (lastDotPos == std::string::npos)
         lastDotPos = startFileName.size();
     std::string name = startFileName.substr(0, lastDotPos);
     std::string extension = startFileName.substr(lastDotPos, startFileName.size());
 
-    // Генерация уникального имени
     int cur_ind = 0;
     while (dirFileNames.find(name + (cur_ind ? "(" + std::to_string(cur_ind) + ")" : "") + extension) != dirFileNames.end())
         cur_ind++;
-    return name + (cur_ind ? "(" + std::to_string(cur_ind) + ")" : "") + extension;
+
+    std::string uniqueName = name + (cur_ind ? "(" + std::to_string(cur_ind) + ")" : "") + extension;
+    dirFileNames.insert(uniqueName);
+    return uniqueName;
 }
 
 // Загрузка файла по указанному URL в указанную директорию
@@ -125,7 +127,7 @@ bool downloadFile(const std::string &url, const std::string &outputDir)
     // Генерация имени файла из URL
     std::string filename = ExtractFilenameFromUrl(url);
     filename = getFileNameWithNumber(filename);
-    dirFileNames.insert(filename);
+
     std::string outputPath = outputDir + "/" + filename;
     try
     {
@@ -166,14 +168,22 @@ bool downloadFile(const std::string &url, const std::string &outputDir)
             std::string contentDispositionFilename = ExtractFilename(headerData);
             if (!contentDispositionFilename.empty())
             {
-                dirFileNames.erase(filename);
+                {
+                    std::lock_guard<std::mutex> lock(dirFileNamesMutex);
+                    dirFileNames.erase(filename);
+                }
+
                 contentDispositionFilename = getFileNameWithNumber(contentDispositionFilename);
                 std::string newOutputPath = outputDir + "/" + contentDispositionFilename;
                 if (std::rename(outputPath.c_str(), newOutputPath.c_str()) == 0)
                 {
                     outputPath = newOutputPath;
                 }
-                dirFileNames.insert(contentDispositionFilename);
+
+                {
+                    std::lock_guard<std::mutex> lock(dirFileNamesMutex);
+                    dirFileNames.insert(contentDispositionFilename);
+                }
             }
 
             logEvent("Successfully downloaded: " + outputPath);
@@ -191,16 +201,27 @@ void downloadMultipleFiles(const std::vector<std::string> &urls,
                            const std::string &outputDir,
                            size_t maxThreads)
 {
+    size_t hardwareThreads = std::thread::hardware_concurrency();
+    if (hardwareThreads == 0)
+    {
+        hardwareThreads = 2;
+    }
+
+    maxThreads = std::min(maxThreads, hardwareThreads);
+
     if (std::filesystem::exists(outputDir))
     {
         for (const auto &entry : std::filesystem::directory_iterator(outputDir))
         {
+            std::lock_guard<std::mutex> lock(dirFileNamesMutex);
             dirFileNames.insert(entry.path().filename().string());
         }
     }
+
     std::vector<std::thread> threads;
 
     size_t activeThreads = 0;
+
     for (size_t i = 0; i < urls.size(); ++i)
     {
         // Создаем поток для каждого URL
