@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
     // Извлечение аргументов
     std::string str1 = argv[1]; // Путь к файлу
     std::vector<std::string> urls = readUrlsFromFile(str1);
-    std::string str2 = argv[2]; // Дирректория для сохранения
+    std::string str2 = argv[2]; // Директория для сохранения
     std::string outputDir = str2;
     size_t maxThreads;
 
