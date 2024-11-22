@@ -192,6 +192,23 @@ bool downloadFile(const std::string &url, const std::string &outputDir)
     }
 
     fclose(file);
+
+    if (!success)
+    {
+        {
+            std::lock_guard<std::mutex> lock(dirFileNamesMutex);
+            dirFileNames.erase(filename);
+        }
+        if (std::remove(outputPath.c_str()) == 0)
+        {
+            logEvent("Info: Incomplete file removed: " + outputPath);
+        }
+        else
+        {
+            logEvent("Error: Failed to remove incomplete file: " + outputPath);
+        }
+    }
+
     curl_easy_cleanup(curl);
     return success;
 }

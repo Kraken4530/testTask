@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iomanip>
 #include <ctime>
+#include <algorithm>
 #include <curl/curl.h>
 
 extern std::mutex consoleMutex;
