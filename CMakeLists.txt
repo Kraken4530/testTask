@@ -20,15 +20,6 @@ set(HEADERS
 # Добавление исполняемого файла
 add_executable(downloader ${SOURCES} ${HEADERS})
 
-# Подключение библиотеки libcurl
-find_package(CURL REQUIRED)
-if (CURL_FOUND)
-    include_directories(${CURL_INCLUDE_DIR})
-    target_link_libraries(downloader ${CURL_LIBRARIES})
-else()
-    message(FATAL_ERROR "libcurl not found!")
-endif()
+find_package(Poco REQUIRED Net NetSSL Foundation)
 
-
-
-
+target_link_libraries(downloader PRIVATE Poco::Net Poco::NetSSL Poco::Foundation)

@@ -1,8 +1,7 @@
 #include "downloader.h"
 
 std::mutex consoleMutex;
-std::mutex dirFileNamesMutex;
-std::set<std::string> dirFileNames;
+std::mutex fileMutex;
 
 // Получение текущего времени в формате строки с миллисекундами
 std::string getCurrentTime()
@@ -25,28 +24,21 @@ void logEvent(const std::string &message)
     std::cout << "[" << getCurrentTime() << "] " << message << std::endl;
 }
 
-// Запись данных в файл (CURL callback)
-size_t WriteToFile(void *ptr, size_t size, size_t nmemb, FILE *stream)
+std::string replaceInvalidFilenameChars(const std::string &filename)
 {
-    return fwrite(ptr, size, nmemb, stream);
+    std::regex invalidChars("[^a-zA-Z0-9._-]");
+    return std::regex_replace(filename, invalidChars, "_");
 }
 
-// Callback для обработки заголовков
-size_t HeaderCallback(char *buffer, size_t size, size_t nitems, std::string *headerData)
+std::string extractFilenameFromUrl(const std::string &url)
 {
-    size_t totalSize = size * nitems;
-    std::string header(buffer, totalSize);
+    size_t lastSlash = url.find_last_of('/');
+    std::string filename = (lastSlash != std::string::npos) ? url.substr(lastSlash + 1) : "downloaded_file";
 
-    if (header.find("Content-Disposition:") != std::string::npos)
-    {
-        *headerData = header;
-    }
-
-    return totalSize;
+    return replaceInvalidFilenameChars(filename);
 }
 
-// Извлечение имени файла из заголовка Content-Disposition
-std::string ExtractFilename(const std::string &contentDisposition)
+std::string extractFilename(const std::string &contentDisposition)
 {
     std::string filenameKey = "filename=";
     size_t pos = contentDisposition.find(filenameKey);
@@ -65,152 +57,137 @@ std::string ExtractFilename(const std::string &contentDisposition)
         else
         {
             size_t end = contentDisposition.find(';', pos);
+            if (end == std::string::npos)
+            {
+                end = contentDisposition.length();
+            }
             return contentDisposition.substr(pos, end - pos);
         }
     }
     return "";
 }
 
-// Извлечение имени файла из URL
-std::string ExtractFilenameFromUrl(const std::string &url)
-{
-    size_t lastSlash = url.find_last_of('/');
-    std::string filename = (lastSlash != std::string::npos) ? url.substr(lastSlash + 1) : "downloaded_file";
-
-    // Замена недопустимых символов в имени файла на '_'
-    std::regex invalidChars("[^a-zA-Z0-9._-]");
-    filename = std::regex_replace(filename, invalidChars, "_");
-
-    return filename;
-}
-
 // Генерация уникального имени файла с добавлением номера (если требуется)
-std::string getFileNameWithNumber(std::string startFileName)
+std::string generateUniqueFilename(const std::string &outputDir, const std::string &filename)
 {
-    std::lock_guard<std::mutex> lock(dirFileNamesMutex);
+    std::string uniqueFilename = filename;
+    std::filesystem::path outputPath(outputDir);
+    int counter = 1;
 
-    size_t lastDotPos = startFileName.rfind('.');
-    if (lastDotPos == std::string::npos)
-        lastDotPos = startFileName.size();
-    std::string name = startFileName.substr(0, lastDotPos);
-    std::string extension = startFileName.substr(lastDotPos, startFileName.size());
+    while (std::filesystem::exists(outputPath / uniqueFilename))
+    {
+        size_t dotPos = filename.find_last_of('.');
+        if (dotPos == std::string::npos)
+        {
+            uniqueFilename = filename + "(" + std::to_string(counter) + ")";
+        }
+        else
+        {
+            uniqueFilename = filename.substr(0, dotPos) + "(" + std::to_string(counter) + ")" +
+                             filename.substr(dotPos);
+        }
+        ++counter;
+    }
 
-    int cur_ind = 0;
-    while (dirFileNames.find(name + (cur_ind ? "(" + std::to_string(cur_ind) + ")" : "") + extension) != dirFileNames.end())
-        cur_ind++;
-
-    std::string uniqueName = name + (cur_ind ? "(" + std::to_string(cur_ind) + ")" : "") + extension;
-    dirFileNames.insert(uniqueName);
-    return uniqueName;
+    return (outputPath / uniqueFilename).string();
 }
 
 // Загрузка файла по указанному URL в указанную директорию
 bool downloadFile(const std::string &url, const std::string &outputDir)
 {
-    CURL *curl = curl_easy_init();
-    if (!curl)
-    {
-        logEvent("Error: Unable to initialize CURL for URL: " + url);
-        return false;
-    }
-
-    std::string headerData;
-    bool success = false;
-
-    logEvent("Start downloading: " + url);
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteToFile);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerData);
-
-    // Генерация имени файла из URL
-    std::string filename = ExtractFilenameFromUrl(url);
-    filename = getFileNameWithNumber(filename);
-
-    std::string outputPath = outputDir + "/" + filename;
     try
     {
-        std::filesystem::create_directories(std::filesystem::path(outputPath).parent_path());
-    }
-    catch (const std::filesystem::filesystem_error &e)
-    {
-        logEvent("Error: Unable to create directories for path: " + outputPath + " with error: " + e.what());
-        curl_easy_cleanup(curl);
-        return false;
-    }
-    FILE *file = fopen(outputPath.c_str(), "wb");
-    if (!file)
-    {
-        logEvent("Error: Unable to create file: " + outputPath);
-        curl_easy_cleanup(curl);
-        return false;
-    }
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
+        Poco::URI uri(url);
+        std::string host = uri.getHost();
+        std::string target = uri.getPathAndQuery(); // Включает путь и параметры запроса
+        int port = uri.getPort() != 0 ? uri.getPort() : (uri.getScheme() == "https" ? 443 : 80);
 
-    // Выполнение запроса
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK)
-    {
-        logEvent("Error: CURL failed for URL: " + url + " with error: " + curl_easy_strerror(res));
-    }
-    else
-    {
-        long responseCode;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
-        if (responseCode != 200)
+        // Создание сессии
+        std::unique_ptr<Poco::Net::HTTPClientSession> session;
+        if (uri.getScheme() == "https")
         {
-            logEvent("Warning: Server responded with code " + std::to_string(responseCode) + " for URL: " + url);
+            // Инициализация SSL
+            Poco::Net::initializeSSL();
+            Poco::SharedPtr<Poco::Net::InvalidCertificateHandler> pCertHandler =
+                new Poco::Net::AcceptCertificateHandler(false);
+            Poco::Net::SSLManager::instance().initializeClient(nullptr, pCertHandler, nullptr);
+            session = std::make_unique<Poco::Net::HTTPSClientSession>(host, port);
+            Poco::Net::uninitializeSSL();
         }
         else
         {
-            // Проверка, было ли извлечено имя файла из заголовков
-            std::string contentDispositionFilename = ExtractFilename(headerData);
-            if (!contentDispositionFilename.empty())
+            session = std::make_unique<Poco::Net::HTTPClientSession>(host, port);
+        }
+
+        logEvent("Start downloading: " + url);
+
+        // Отправка запроса
+        Poco::Net::HTTPRequest request(Poco::Net::HTTPRequest::HTTP_GET, target);
+
+        session->sendRequest(request);
+
+        // Чтение ответа
+        Poco::Net::HTTPResponse response;
+        std::istream &responseStream = session->receiveResponse(response);
+
+        if (response.getStatus() != Poco::Net::HTTPResponse::HTTP_OK)
+        {
+            logEvent("Warning: Server responded with status " +
+                     std::to_string(response.getStatus()) + " " +
+                     response.getReason() + " for URL: " + url);
+            return false;
+        }
+
+        std::string filename = "file";
+        if (response.has("Content-Disposition"))
+        {
+            const std::string contentDisposition = response.get("Content-Disposition");
+            std::string extractedFilename = extractFilename(contentDisposition);
+            if (!extractedFilename.empty())
             {
-                {
-                    std::lock_guard<std::mutex> lock(dirFileNamesMutex);
-                    dirFileNames.erase(filename);
-                }
-
-                contentDispositionFilename = getFileNameWithNumber(contentDispositionFilename);
-                std::string newOutputPath = outputDir + "/" + contentDispositionFilename;
-                if (std::rename(outputPath.c_str(), newOutputPath.c_str()) == 0)
-                {
-                    outputPath = newOutputPath;
-                }
-
-                {
-                    std::lock_guard<std::mutex> lock(dirFileNamesMutex);
-                    dirFileNames.insert(contentDispositionFilename);
-                }
+                filename = replaceInvalidFilenameChars(extractedFilename);
             }
-
-            logEvent("Successfully downloaded: " + outputPath);
-            success = true;
-        }
-    }
-
-    fclose(file);
-
-    if (!success)
-    {
-        {
-            std::lock_guard<std::mutex> lock(dirFileNamesMutex);
-            dirFileNames.erase(filename);
-        }
-        if (std::remove(outputPath.c_str()) == 0)
-        {
-            logEvent("Info: Incomplete file removed: " + outputPath);
         }
         else
         {
-            logEvent("Error: Failed to remove incomplete file: " + outputPath);
+            filename = extractFilenameFromUrl(url);
         }
-    }
 
-    curl_easy_cleanup(curl);
-    return success;
+        {
+            std::lock_guard<std::mutex> lock(fileMutex);
+            std::string outputFilename = generateUniqueFilename(outputDir, filename);
+            std::ofstream file(outputFilename, std::ios::binary);
+            if (file.is_open())
+            {
+                Poco::StreamCopier::copyStream(responseStream, file);
+                file.close();
+            }
+            else
+            {
+                logEvent("Error: Unable to open file for writing: " + outputFilename);
+                return false;
+            }
+            logEvent("File downloaded successfully to: " + outputFilename);
+        }
+        return true;
+    }
+    catch (const Poco::Exception &ex)
+    {
+        logEvent("Error: Poco exception occurred while downloading file from URL: " + url +
+                 " with message: " + ex.displayText());
+        return false;
+    }
+    catch (const std::exception &ex)
+    {
+        logEvent("Error: Standard exception occurred while downloading file from URL: " + url +
+                 " with message: " + std::string(ex.what()));
+        return false;
+    }
+    catch (...)
+    {
+        logEvent("Error: Unknown exception occurred while downloading file from URL: " + url);
+        return false;
+    }
 }
 
 // Загрузка нескольких файлов параллельно с ограничением по количеству потоков
@@ -218,21 +195,14 @@ void downloadMultipleFiles(const std::vector<std::string> &urls,
                            const std::string &outputDir,
                            size_t maxThreads)
 {
-    size_t hardwareThreads = std::thread::hardware_concurrency();
-    if (hardwareThreads == 0)
+    try
     {
-        hardwareThreads = 2;
+        std::filesystem::create_directories(std::filesystem::path(outputDir));
     }
-
-    maxThreads = std::min(maxThreads, hardwareThreads);
-
-    if (std::filesystem::exists(outputDir))
+    catch (const std::filesystem::filesystem_error &e)
     {
-        for (const auto &entry : std::filesystem::directory_iterator(outputDir))
-        {
-            std::lock_guard<std::mutex> lock(dirFileNamesMutex);
-            dirFileNames.insert(entry.path().filename().string());
-        }
+        logEvent("Error: Unable to create directories for path: " + outputDir + " with error: " + e.what());
+        return;
     }
 
     std::vector<std::thread> threads;

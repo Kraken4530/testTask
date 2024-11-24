@@ -15,25 +15,31 @@
 #include <iomanip>
 #include <ctime>
 #include <algorithm>
-#include <curl/curl.h>
+#include <Poco/URI.h>
+#include <Poco/Net/HTTPClientSession.h>
+#include <Poco/Net/HTTPSClientSession.h>
+#include <Poco/Net/HTTPRequest.h>
+#include <Poco/Net/HTTPResponse.h>
+#include <Poco/StreamCopier.h>
+#include <Poco/Net/SSLManager.h>
+#include <Poco/Net/AcceptCertificateHandler.h>
+#include <Poco/Net/InvalidCertificateHandler.h>
+#include <Poco/SharedPtr.h>
 
 extern std::mutex consoleMutex;
-extern std::mutex dirFileNamesMutex;
-extern std::set<std::string> dirFileNames;
+extern std::mutex fileMutex;
 
 std::string getCurrentTime();
 
 void logEvent(const std::string &message);
 
-size_t WriteToFile(void *ptr, size_t size, size_t nmemb, FILE *stream);
+std::string replaceInvalidFilenameChars(const std::string &filename);
 
-size_t HeaderCallback(char *buffer, size_t size, size_t nitems, std::string *headerData);
+std::string extractFilenameFromUrl(const std::string &url);
 
-std::string ExtractFilename(const std::string &contentDisposition);
+std::string extractFilename(const std::string &contentDisposition);
 
-std::string ExtractFilenameFromUrl(const std::string &url);
-
-std::string getFileNameWithNumber(std::string startFileName);
+std::string generateUniqueFilename(const std::string &outputDir, const std::string &filename);
 
 bool downloadFile(const std::string &url, const std::string &outputDir);
 
