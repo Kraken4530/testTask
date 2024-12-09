@@ -106,13 +106,7 @@ bool downloadFile(const std::string &url, const std::string &outputDir)
         std::unique_ptr<Poco::Net::HTTPClientSession> session;
         if (uri.getScheme() == "https")
         {
-            // Инициализация SSL
-            Poco::Net::initializeSSL();
-            Poco::SharedPtr<Poco::Net::InvalidCertificateHandler> pCertHandler =
-                new Poco::Net::AcceptCertificateHandler(false);
-            Poco::Net::SSLManager::instance().initializeClient(nullptr, pCertHandler, nullptr);
             session = std::make_unique<Poco::Net::HTTPSClientSession>(host, port);
-            Poco::Net::uninitializeSSL();
         }
         else
         {

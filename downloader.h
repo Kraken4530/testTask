@@ -21,10 +21,6 @@
 #include <Poco/Net/HTTPRequest.h>
 #include <Poco/Net/HTTPResponse.h>
 #include <Poco/StreamCopier.h>
-#include <Poco/Net/SSLManager.h>
-#include <Poco/Net/AcceptCertificateHandler.h>
-#include <Poco/Net/InvalidCertificateHandler.h>
-#include <Poco/SharedPtr.h>
 
 extern std::mutex consoleMutex;
 extern std::mutex fileMutex;
